@@ -1,0 +1,6 @@
+LEDE r5669-a367645 / 2018-01-02 15:21
+---
+main      2018-01-02 a367645 uci: add missing 'option' support to uci_
+luci      2018-01-02 dbb694c luci-mod-admin-full: allow a wider range
+packages  2018-01-02 c6035be ntpd: remove ntp.conf
+routing   2018-01-02 679f780 bmx: Use repos from https://github.com/bm
