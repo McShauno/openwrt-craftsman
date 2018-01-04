@@ -3,59 +3,71 @@
 # include commonly used functions and variables. 
 source common/boilerplate.sh
 
-
 declare -a ON_TRAP_COMMANDS
 
-readonly OPENWRT_GIT_REPO='git://git.openwrt.org/openwrt/openwrt.git'
-readonly OPENWRT_TARGET='openwrt'
+readonly CONSTRUCT=$(cat construct.json)
+readonly FRAMER_DIR=$(pwd)
+shopt -s expand_aliases
+shopt -s dotglob
 
-function clone_repository() {
-    LogLine "Cloning git repository from ${OPENWRT_GIT_REPO} to ${OPENWRT_TARGET}"
-    git clone --verbose ${OPENWRT_GIT_REPO} ${OPENWRT_TARGET}
-    LogLine "Cloning complete."
+get_construct() {
+    local construct_name=$1
+    echo $CONSTRUCT | ./common/jq -r $construct_name
 }
 
-function copy_base_structure() {
-    LogLine "Copying base structure files to repo."
-    cp --verbose --recursive ./structure/* ./${OPENWRT_TARGET}/
+apply_patches() {
+    local subdirectory=$1
+    local patch_target=$2
+    local patch_directory=${FRAMER_DIR}/${subdirectory}
+    local files=${patch_directory}/*.patch
+    local total_files=$(ls -1 $files | wc -l)
+
+    logline "Total patch files to process: $total_files"
+
+    for patch_file in ${files}
+    do
+        logline "Applying patch file ${patch_file}"
+        patch -d $patch_target -p1 -i ${patch_file}
+    done
 }
 
-function apply_base_patches() {
-    LogLine "Applying base patches..."
-    common/patch-all.sh patches ${OPENWRT_TARGET}
+clone_repository() {
+    local repo=$1
+    local branch=$2
+    local target=$3
+    logline "Cloning git repository from ${repo} - ${branch} to ${target}"
+    git clone -b $branch --single-branch $repo $target
+    logline "Cloning complete."
 }
 
-function apply_luci_patches() {
-    LogLine "Applying luci patches..."
-    common/patch-all.sh luci/patches ${OPENWRT_TARGET}/feeds/luci
+execute_external() {
+    local external_script=$1
+    if [ -e $1 ]
+    then
+        source $1
+    else
+        logline "Warning: $1 does not exist."
+    fi
 }
 
-function apply_packages_patches() {
-    LogLine "Applying packages patches..."
-    common/patch-all.sh packages/patches ${OPENWRT_TARGET}/feeds/packages
+copy_structure() {
+    local structure=$1
+    local target=$2
+    logline "Copying base structure files to repo."
+    cp --verbose --recursive ./${structure}/* ./${target}/
 }
 
-function copy_luci_structure() {
-    LogLine "Copying luci structure to repo."
-    cp --verbose --recursive ./luci/structure/* ./${OPENWRT_TARGET}/feeds/luci/
-}
-
-function copy_packages_structure() {
-    LogLine "Copying packages structure to repo."
-    cp --verbose --recursive ./packages/structure/* ./${OPENWRT_TARGET}/feeds/packages/
-}
-
-function add_on_exit()
+add_on_exit()
 {
     local n=${#ON_TRAP_COMMANDS[*]}
     ON_TRAP_COMMANDS[$n]="$*"
     if [[ $n -eq 0 ]]; then
-        LogLine "Appending Trap: $*"
+        logline "Appending Trap: $*"
         trap on_exit EXIT
     fi
 }
 
-function on_exit()
+on_exit()
 {
     for i in "${ON_TRAP_COMMANDS[@]}"
     do
@@ -66,32 +78,59 @@ function on_exit()
     exit 1
 }
 
-function main() {
-    LogLine "Applying custom OpenWrt build..."
-    shopt -s dotglob
+execute_plans() {
+    local target=$1
+    while 
+        IFS= read -r plan_name &&
+        IFS= read -r plan_pre &&
+        IFS= read -r plan_structure &&
+        IFS= read -r plan_patches &&
+        IFS= read -r plan_pos;
+    do
+        logline "Executing plan $plan_name."
+        execute_external ./${plan_name}/${plan_pre}
+        copy_structure ${plan_name}/${plan_structure} ${target}/feeds/${plan_name}
+        apply_patches ${plan_name}/${plan_patches} ${target}/feeds/${plan_name}
+        execute_external ./${plan_name}/${plan_pos}
+    done < <(echo $CONSTRUCT | ./common/jq -r '.plans[] | (.name, .prebuild, .structureDirectory, .patchesDirectory, .postbuild)')
+}
 
-    clone_repository
-    copy_base_structure
-    apply_base_patches
+main() {
+    logline "Applying custom OpenWrt build..."
 
-    LogLine "Updating OpenWrt feeds..."
-    ${OPENWRT_TARGET}/scripts/feeds update -a
+    local construct_name=$(get_construct '.name')
+    local repository_url=$(get_construct '.openwrt.repository.url')
+    local repository_branch=$(get_construct '.openwrt.repository.branch')
+    local repository_target=$(get_construct '.openwrt.repository.target')
 
-    copy_luci_structure
-    copy_packages_structure
-    apply_luci_patches
-    apply_packages_patches
+    clone_repository $repository_url $repository_branch $repository_target
 
-    LogLine "Reupdating feeds..."
-    ${OPENWRT_TARGET}/scripts/feeds update -i
+    local base_pre=$(get_construct '.base.prebuild')
+    local base_structure=$(get_construct '.base.structureDirectory')
+    local base_patches=$(get_construct '.base.patchesDirectory')
+    local base_post=$(get_construct '.base.postbuild')
 
-    LogLine "Installing packages..."
-    ${OPENWRT_TARGET}/scripts/feeds install -a
-    
-    cp ${OPENWRT_TARGET}/.config.init ${OPENWRT_TARGET}/.config
+    logline "Executing base prebuild script ${base_pre}."
+    execute_external ./${base_pre}
 
-    make -C ${OPENWRT_TARGET} defconfig
-    make -C ${OPENWRT_TARGET} download
+    logline "Copying base structure."
+    copy_structure $base_structure $repository_target
+
+    logline "Applying base patches."
+    apply_patches $base_patches $repository_target
+
+    logline "Executing base post script ${base_post}."
+    execute_external ./${base_post}
+
+    logline "Executing additional plans..."
+    execute_plans ${repository_target}
+
+    local final_script=$(get_construct '.finalize')
+
+    logline "Executing final script..."
+    execute_external ./${final_script}
+
+    logline "Complete."
 }
 
 main "$@"

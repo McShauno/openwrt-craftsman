@@ -70,7 +70,7 @@ function to_upper()
 }
 
 
-################################## Debug echo ##################################
+################################## debug echo ##################################
 # Conditionally echos a message:
 # If $DEBUG_SHELL is "true", "yes", "on" or "1", displayes the message.
 # If $DEBUG_LOG_FILE is defined, appends echo to the file (regardless of 
@@ -94,41 +94,41 @@ function decho()
   fi
 }
 
-function CheckDirectory()
+function check_directory()
 {
     local _checkValue=$1
-    Debug "Checking if directory [$_checkValue] exists."
+    debug "Checking if directory [$_checkValue] exists."
     if [ ! -d "$_checkValue" ]; then
-        Fail "Required directory [$_checkValue] does not exist."
+        fail "Required directory [$_checkValue] does not exist."
     fi
 }
 
-function CheckExecutable()
+function check_executable()
 {
     local __executable=$1
-    Debug "Checking if executable [$__executable] exists."
+    debug "Checking if executable [$__executable] exists."
     if command -v $__executable > /dev/null; then
         return;
     else
-        Fail "$__executable not found."
+        fail "$__executable not found."
     fi
 }
 
-function Debug() {
+function debug() {
     decho $1
 }
 
-function LogLine  {
+function logline  {
     echo ""
     echo $1
 }
 
-function Log() {
+function log() {
     echo -en $1
 }
 
-function Fail() {
+function fail() {
     failMessage=$1
-    LogLine "Failing: $failMessage"
+    logline "failing: $failMessage"
     exit 1
 }  
