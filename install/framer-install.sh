@@ -1,0 +1,33 @@
+#!/bin/bash
+readonly FRAMER_GIT_REPOSITORY="https://github.com/McShauno/openwrt-framer.git"
+readonly FRAMER_RELEASE_BRANCH="release"
+
+command_exists() {
+    local executable=$1
+    command -v $executable
+}
+
+fail() {
+    local failMessage=$1
+    logline "Failure: $failMessage"
+    exit 1
+}
+
+logline() {
+    local message=$1
+    echo ""
+    echo $message
+}
+
+clone_repository() {
+    git clone -b $FRAMER_RELEASE_BRANCH --single-branch $FRAMER_GIT_REPOSITORY
+}
+
+main() {
+    logline "Installing openwrt-framer."
+    command_exists git || fail "Could not find git."
+    logline "Cloning release branch."
+    clone_repository || fail "Unable to clone repository."
+}
+
+main "$@"
