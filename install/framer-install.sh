@@ -1,6 +1,7 @@
 #!/bin/bash
 readonly FRAMER_GIT_REPOSITORY="https://github.com/McShauno/openwrt-framer.git"
 readonly FRAMER_RELEASE_BRANCH="release"
+readonly FRAMER_TARGET_DIR="openwrt-framer"
 
 command_exists() {
     local executable=$1
@@ -20,7 +21,8 @@ logline() {
 }
 
 clone_repository() {
-    git clone -b $FRAMER_RELEASE_BRANCH --single-branch $FRAMER_GIT_REPOSITORY
+    git clone -b $FRAMER_RELEASE_BRANCH --single-branch $FRAMER_GIT_REPOSITORY $FRAMER_TARGET_DIR
+    rm -rf $FRAMER_TARGET_DIR/.git
 }
 
 main() {
