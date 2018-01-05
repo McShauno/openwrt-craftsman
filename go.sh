@@ -7,8 +7,26 @@ declare -a ON_TRAP_COMMANDS
 
 readonly CONSTRUCT=$(cat construct.json)
 readonly FRAMER_DIR=$(pwd)
+readonly VERSION_FILE="files/etc/framer.build"
 shopt -s expand_aliases
 shopt -s dotglob
+
+create_version() {
+    local target=$1
+    local framer_version=$2
+    local frame_prefix="openwrt_framer beta"
+    local framer_file=${target}/${VERSION_FILE}
+    local release_nick=$(grep RELEASE: include/{version,toplevel}.mk | cut -d "=" -f 2)
+    echo OpenWrt $release_nick $(scripts/getver.sh) / $(date "+%F %H:%M") > ${framer_file}
+    echo "---" >> ${framer_file}
+    echo "framer    v${framer_version}" > ${framer_file}
+    echo "main      "$((cd ${target} && git show --format="%cd %h %s" --abbrev=7 --date=short | head -n 1 | cut -b1-60)) >> ${framer_file}
+    echo "luci      "$((cd ${target}/feeds/luci && git show --format="%cd %h %s" --abbrev=7 --date=short | head -n 1 | cut -b1-60)) >> ${framer_file}
+    echo "packages  "$((cd ${target}/feeds/packages && git show --format="%cd %h %s" --abbrev=7 --date=short | head -n 1 | cut -b1-60)) >> ${framer_file}
+    echo "routing   "$((cd ${target}/feeds/routing && git show --format="%cd %h %s" --abbrev=7 --date=short | head -n 1 | cut -b1-60)) >> ${framer_file}
+
+    date +%s > ${target}/version.date
+}
 
 get_construct() {
     local construct_name=$1
@@ -102,6 +120,7 @@ main() {
     local repository_url=$(get_construct '.openwrt.repository.url')
     local repository_branch=$(get_construct '.openwrt.repository.branch')
     local repository_target=$(get_construct '.openwrt.repository.target')
+    local framer_version=$(get_construct '.version')
 
     clone_repository $repository_url $repository_branch $repository_target
 
@@ -129,6 +148,8 @@ main() {
 
     logline "Executing final script..."
     execute_external ./${final_script}
+
+    create_version ${repository_target} ${framer_version}
 
     logline "Complete."
 }
