@@ -52,7 +52,7 @@ apply_patches() {
     for patch_file in ${files}
     do
         logline "Applying patch file ${patch_file}"
-        patch -d $patch_target -p1 -i ${patch_file}
+        patch --verbose -N -d $patch_target -p1 -i ${patch_file}
     done
 }
 
@@ -60,9 +60,13 @@ clone_repository() {
     local repo=$1
     local branch=$2
     local target=$3
-    logline "Cloning git repository from ${repo} - ${branch} to ${target}"
-    git clone -b $branch --single-branch $repo $target
-    logline "Cloning complete."
+    if [ ! -d "$target" ]; then
+        logline "Cloning git repository from ${repo} - ${branch} to ${target}"
+        git clone -b $branch --single-branch $repo $target
+        logline "Cloning complete."
+    else
+        logline "$target directory already exists, will not clone."
+    fi
 }
 
 execute_external() {
@@ -79,7 +83,7 @@ copy_structure() {
     local structure=$1
     local target=$2
     logline "Copying base structure files to repo."
-    cp --verbose --recursive ./${structure}/* ./${target}/
+    cp --update --verbose --recursive ./${structure}/* ./${target}/
 }
 
 add_on_exit()
