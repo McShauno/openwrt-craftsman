@@ -16,14 +16,21 @@ create_version() {
     local framer_version=$2
     local frame_prefix="openwrt_framer beta"
     local framer_file=${target}/${VERSION_FILE}
-    local release_nick=$(grep RELEASE: include/{version,toplevel}.mk | cut -d "=" -f 2)
-    echo OpenWrt $release_nick $(scripts/getver.sh) / $(date "+%F %H:%M") > ${framer_file}
+    local date_format=$(date -u "+%F T %H:%M:%S UTC")
+    local openwrt_version=$(cd ${target} && scripts/getver.sh)
+    local release_nick=$(grep RELEASE: ${target}/include/{version,toplevel}.mk | cut -d "=" -f 2)
+    local openwrt_version_stamp="OpenWrt ${release_nick} ${openwrt_version} / ${date_format}"
+    local main_version=$(cd ${target} && git show --format="%cd %h %s" --abbrev=7 --date=short | head -n 1 | cut -b1-60)
+    local luci_version=$(cd ${target}/feeds/luci && git show --format="%cd %h %s" --abbrev=7 --date=short | head -n 1 | cut -b1-60)
+    local packages_version=$(cd ${target}/feeds/packages && git show --format="%cd %h %s" --abbrev=7 --date=short | head -n 1 | cut -b1-60)
+    local routing_version=$(cd ${target}/feeds/routing && git show --format="%cd %h %s" --abbrev=7 --date=short | head -n 1 | cut -b1-60)
+    echo "${openwrt_version_stamp}" > ${framer_file}
     echo "---" >> ${framer_file}
-    echo "framer    v${framer_version}" > ${framer_file}
-    echo "main      "$((cd ${target} && git show --format="%cd %h %s" --abbrev=7 --date=short | head -n 1 | cut -b1-60)) >> ${framer_file}
-    echo "luci      "$((cd ${target}/feeds/luci && git show --format="%cd %h %s" --abbrev=7 --date=short | head -n 1 | cut -b1-60)) >> ${framer_file}
-    echo "packages  "$((cd ${target}/feeds/packages && git show --format="%cd %h %s" --abbrev=7 --date=short | head -n 1 | cut -b1-60)) >> ${framer_file}
-    echo "routing   "$((cd ${target}/feeds/routing && git show --format="%cd %h %s" --abbrev=7 --date=short | head -n 1 | cut -b1-60)) >> ${framer_file}
+    echo "framer    v${framer_version}" >> ${framer_file}
+    echo "main      ${main_version}" >> ${framer_file}
+    echo "luci      ${luci_version}" >> ${framer_file}
+    echo "packages  ${packages_version}" >> ${framer_file}
+    echo "routing   ${routing_version}" >> ${framer_file}
 
     date +%s > ${target}/version.date
 }
