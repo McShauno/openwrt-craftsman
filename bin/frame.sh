@@ -1,13 +1,16 @@
 #!/bin/bash
-
+DEBUG_SHELL=1
+readonly FRAMERSCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 # include commonly used functions and variables. 
-source common/boilerplate.sh
+source ${FRAMERSCRIPT_DIR}/../common/boilerplate.sh
+decho "frame.sh execution directory is ${FRAMERSCRIPT_DIR}"
 
 declare -a ON_TRAP_COMMANDS
 
-readonly CONSTRUCT=$(cat construct.json)
 readonly FRAMER_DIR=$(pwd)
 readonly VERSION_FILE="files/etc/framer.build"
+readonly PACKAGE_TARGET="package"
+readonly REPOSITORY_TARGET="${PACKAGE_TARGET}/openwrt"
 shopt -s expand_aliases
 shopt -s dotglob
 
@@ -24,6 +27,7 @@ create_version() {
     local luci_version=$(cd ${target}/feeds/luci && git show --format="%cd %h %s" --abbrev=7 --date=short | head -n 1 | cut -b1-60)
     local packages_version=$(cd ${target}/feeds/packages && git show --format="%cd %h %s" --abbrev=7 --date=short | head -n 1 | cut -b1-60)
     local routing_version=$(cd ${target}/feeds/routing && git show --format="%cd %h %s" --abbrev=7 --date=short | head -n 1 | cut -b1-60)
+
     echo "${openwrt_version_stamp}" > ${framer_file}
     echo "---" >> ${framer_file}
     echo "framer    v${framer_version}" >> ${framer_file}
@@ -37,13 +41,19 @@ create_version() {
 
 get_construct() {
     local construct_name=$1
-    echo $CONSTRUCT | ./common/jq -r $construct_name
+    echo $CONSTRUCT | ${FRAMERSCRIPT_DIR}/../common/jq -r $construct_name
 }
 
 apply_patches() {
-    local subdirectory=$1
-    local patch_target=$2
-    local patch_directory=${FRAMER_DIR}/${subdirectory}
+    logline "Appylying patches..."
+    local patch_build_target=$1
+    local patch_directory=$2
+    local patch_build_directory=$3
+
+    logline "Patch build target: ${patch_build_target}"
+    logline "Patch directory: ${patch_directory}"
+    logline "Patch build directory: ${patch_build_directory}"
+
     local files=${patch_directory}/*.patch
     local total_files=$(ls -1 $files | wc -l)
 
@@ -51,8 +61,9 @@ apply_patches() {
 
     for patch_file in ${files}
     do
-        logline "Applying patch file ${patch_file}"
-        patch --verbose -N -d $patch_target -p1 -i ${patch_file}
+        local filename=$(basename "$patch_file")
+        logline "Applying patch file ${filename}"
+        patch --verbose -N -d $patch_build_target  -p1 -i ${patch_build_directory}/${filename}
     done
 }
 
@@ -69,8 +80,16 @@ clone_repository() {
     fi
 }
 
+construct_exists() {
+    if [ ! -e "./construct.json" ];
+    then
+        fail "Could not find construct.json file."
+    fi
+}
+
 execute_external() {
     local external_script=$1
+    logline "Sourcing ${external_script}..."
     if [ -e $1 ]
     then
         source $1
@@ -82,7 +101,7 @@ execute_external() {
 copy_structure() {
     local structure=$1
     local target=$2
-    logline "Copying base structure files to repo."
+    logline "Copying ${structure} structure files to repo - ${target}"
     cp --update --verbose --recursive ./${structure}/* ./${target}/
 }
 
@@ -106,7 +125,6 @@ on_exit()
 
     exit 1
 }
-
 execute_plans() {
     local target=$1
     while 
@@ -117,23 +135,32 @@ execute_plans() {
         IFS= read -r plan_pos;
     do
         logline "Executing plan $plan_name."
-        execute_external ./${plan_name}/${plan_pre}
-        copy_structure ${plan_name}/${plan_structure} ${target}/feeds/${plan_name}
-        apply_patches ${plan_name}/${plan_patches} ${target}/feeds/${plan_name}
-        execute_external ./${plan_name}/${plan_pos}
-    done < <(echo $CONSTRUCT | ./common/jq -r '.plans[] | (.name, .prebuild, .structureDirectory, .patchesDirectory, .postbuild)')
+        execute_external ${PACKAGE_TARGET}/${plan_name}/${plan_pre}
+        copy_structure ${PACKAGE_TARGET}/${plan_name}/${plan_structure} ${target}/feeds/${plan_name}
+        apply_patches ${target}/feeds/${plan_name} ${PACKAGE_TARGET}/${plan_name}/${plan_patches} ../../../${plan_name}/${plan_patches}
+        execute_external ${PACKAGE_TARGET}/${plan_name}/${plan_pos}
+    done < <(echo $CONSTRUCT | ${FRAMERSCRIPT_DIR}/../common/jq -r '.plans[] | (.name, .prebuild, .structureDirectory, .patchesDirectory, .postbuild)')
 }
 
 main() {
+    construct_exists
+    readonly CONSTRUCT=$(cat construct.json)
+
     logline "Applying custom OpenWrt build..."
 
+    local uri=$(get_construct '.uri')
+    local branch=$(get_construct '.branch')
     local construct_name=$(get_construct '.name')
     local repository_url=$(get_construct '.openwrt.repository.url')
     local repository_branch=$(get_construct '.openwrt.repository.branch')
-    local repository_target=$(get_construct '.openwrt.repository.target')
     local framer_version=$(get_construct '.version')
 
-    clone_repository $repository_url $repository_branch $repository_target
+    logline "Cloning package from ${uri}"
+
+    clone_repository $uri $branch $PACKAGE_TARGET
+
+    logline "Cloning OpenWrt repository"
+    clone_repository $repository_url $repository_branch $REPOSITORY_TARGET
 
     local base_pre=$(get_construct '.base.prebuild')
     local base_structure=$(get_construct '.base.structureDirectory')
@@ -141,26 +168,26 @@ main() {
     local base_post=$(get_construct '.base.postbuild')
 
     logline "Executing base prebuild script ${base_pre}."
-    execute_external ./${base_pre}
+    execute_external $PACKAGE_TARGET/${base_pre}
 
     logline "Copying base structure."
-    copy_structure $base_structure $repository_target
+    copy_structure ${PACKAGE_TARGET}/$base_structure $REPOSITORY_TARGET
 
     logline "Applying base patches."
-    apply_patches $base_patches $repository_target
+    apply_patches $REPOSITORY_TARGET ${PACKAGE_TARGET}/${base_patches} ../${base_patches}
 
     logline "Executing base post script ${base_post}."
-    execute_external ./${base_post}
+    execute_external ${PACKAGE_TARGET}/${base_post}
 
     logline "Executing additional plans..."
-    execute_plans ${repository_target}
+    execute_plans ${REPOSITORY_TARGET}
 
     local final_script=$(get_construct '.finalize')
 
     logline "Executing final script..."
-    execute_external ./${final_script}
+    execute_external ${PACKAGE_TARGET}/${final_script}
 
-    create_version ${repository_target} ${framer_version}
+    create_version ${REPOSITORY_TARGET} ${framer_version}
 
     logline "Complete."
 }
